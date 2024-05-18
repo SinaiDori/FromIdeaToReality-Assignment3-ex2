@@ -1,11 +1,12 @@
-from tanks import TankController, MOVE_FORWARD, MOVE_BACKWARD, TURN_LEFT, TURN_RIGHT, SHOOT, TANK_SIZE, GameState, Tank, normalize_angle, INITIAL_TANK_HEALTH, TREE_RADIUS
-from math import degrees, atan2, sqrt
+from tanks import TankController, MOVE_FORWARD, MOVE_BACKWARD, TURN_LEFT, TURN_RIGHT, SHOOT, TANK_SIZE, GameState, Tank, normalize_angle, INITIAL_TANK_HEALTH, TREE_RADIUS, SHOOT_SUPER, check_collision
+from math import degrees, atan2, sqrt, cos, sin, radians
 import random
 
 
 class CPUTankController(TankController):
     def __init__(self, tank_id: str):
         self.tank_id = tank_id
+        self.regular_bullets_shot_before_the_last_super_bullet = 0
 
     @property
     def id(self) -> str:
@@ -67,9 +68,84 @@ class CPUTankController(TankController):
         # If no tree was found to intersect the path, return False
         return False
 
+    def touching_tree(self, p1, trees):
+        for tree in trees:
+            dx = tree.position[0] - p1[0]
+            dy = tree.position[1] - p1[1]
+            distance = sqrt(dx * dx + dy * dy)
+            if distance < TREE_RADIUS:
+                return True
+        return False
+
+    def touching_border(self, p1, width, height):
+        return p1[0] < 0 or p1[0] > width or p1[1] < 0 or p1[1] > height
+
+    # def decide_what_to_do_next(self, gameState: GameState) -> str:
+    #     my_tank = next(tank for tank in gameState.tanks if tank.id == self.id)
+    #     enemy_tank = self.find_strongest_enemy_tank(gameState)
+
+    #     dx = enemy_tank.position[0] - my_tank.position[0]
+    #     dy = enemy_tank.position[1] - my_tank.position[1]
+
+    #     distance = sqrt(dx * dx + dy * dy)
+    #     desired_angle = normalize_angle(degrees(atan2(-dy, dx)))
+    #     angle_diff = my_tank.angle - desired_angle
+
+    #     if (my_tank.health < INITIAL_TANK_HEALTH/2):
+    #         if random.random() < 0.7:
+    #             return MOVE_BACKWARD
+    #         if random.random() < 0.2:
+    #             return TURN_RIGHT
+
+    #     if (random.random() < 0.2):
+    #         return SHOOT
+
+    #     if abs(angle_diff) > 3:
+    #         return TURN_LEFT if angle_diff < 0 else TURN_RIGHT
+    #     elif distance < max(TANK_SIZE) * 5:
+    #         if not self.is_tree_in_path(my_tank.position, enemy_tank.position, gameState.trees):
+    #             return SHOOT_SUPER
+    #         else:
+    #             # Decide what to do if there's a tree in the way
+    #             return TURN_RIGHT
+    #     else:
+    #         return MOVE_FORWARD
+
+    # def decide_what_to_do_next(self, gameState: GameState) -> str:
+    #     my_tank = next(tank for tank in gameState.tanks if tank.id == self.id)
+    #     enemy_tank = self.find_closest_enemy_tank(gameState)
+
+    #     dx = enemy_tank.position[0] - my_tank.position[0]
+    #     dy = enemy_tank.position[1] - my_tank.position[1]
+
+    #     distance = sqrt(dx * dx + dy * dy)
+    #     desired_angle = normalize_angle(degrees(atan2(dy, dx)))
+    #     angle_diff = my_tank.angle - desired_angle
+
+    #     # Retreated state (health is low)
+    #     if my_tank.health < INITIAL_TANK_HEALTH / 2:
+    #         return MOVE_BACKWARD if distance < max(TANK_SIZE) * 2 else MOVE_FORWARD
+
+    #     # Close-range shooting
+    #     if distance < max(TANK_SIZE) * 5:
+    #         return SHOOT_SUPER
+
+    #     elif abs(angle_diff) > 5:
+    #         return TURN_LEFT if angle_diff < 0 else TURN_RIGHT
+
+    #     # Approach the enemy
+    #     elif distance > max(TANK_SIZE) * 3:
+    #         return MOVE_FORWARD
+
+    #     # Obstacle handling
+    #     elif self.is_tree_in_path(my_tank.position, enemy_tank.position, gameState.trees):
+    #         return TURN_RIGHT
+
+    #     return SHOOT
+
     def decide_what_to_do_next(self, gameState: GameState) -> str:
         my_tank = next(tank for tank in gameState.tanks if tank.id == self.id)
-        enemy_tank = self.find_strongest_enemy_tank(gameState)
+        enemy_tank = self.find_closest_enemy_tank(gameState)
 
         dx = enemy_tank.position[0] - my_tank.position[0]
         dy = enemy_tank.position[1] - my_tank.position[1]
@@ -78,22 +154,23 @@ class CPUTankController(TankController):
         desired_angle = normalize_angle(degrees(atan2(-dy, dx)))
         angle_diff = my_tank.angle - desired_angle
 
-        if (my_tank.health < INITIAL_TANK_HEALTH/2):
-            if random.random() < 0.7:
-                return MOVE_BACKWARD
-            if random.random() < 0.2:
-                return TURN_RIGHT
-
-        if (random.random() < 0.2):
-            return SHOOT
-
-        if abs(angle_diff) > 3:
+        if my_tank.health < INITIAL_TANK_HEALTH / 4 and not self.touching_tree(my_tank.position, gameState.trees) and not self.touching_border(my_tank.position, gameState.width, gameState.height):
+            return MOVE_BACKWARD if self.is_touching_tree_front(my_tank, gameState.trees, 0) else TURN_RIGHT
+        elif my_tank.health < INITIAL_TANK_HEALTH / 2 and distance < max(TANK_SIZE) * 3 and not self.touching_tree(my_tank.position, gameState.trees):
+            return MOVE_BACKWARD
+        elif my_tank.health < INITIAL_TANK_HEALTH / 2 and distance < max(TANK_SIZE) * 2:
+            return MOVE_BACKWARD
+        elif self.touching_tree(my_tank.position, gameState.trees):
+            return MOVE_BACKWARD if self.is_touching_tree_front(my_tank, gameState.trees, 0) else TURN_RIGHT
+        elif abs(angle_diff) > 5:
             return TURN_LEFT if angle_diff < 0 else TURN_RIGHT
-        elif distance < max(TANK_SIZE) * 5:
-            if not self.is_tree_in_path(my_tank.position, enemy_tank.position, gameState.trees):
-                return SHOOT
-            else:
-                # Decide what to do if there's a tree in the way
-                return TURN_RIGHT
-        else:
+        elif distance > max(TANK_SIZE) * 4:
             return MOVE_FORWARD
+
+        # else if the last time we shot a super bullet, we shot more than 5 regular bullets than shoot a super bullet else shoot a regular bullet
+        if self.regular_bullets_shot_before_the_last_super_bullet > 5:
+            self.regular_bullets_shot_before_the_last_super_bullet = 0
+            return SHOOT_SUPER
+        else:
+            self.regular_bullets_shot_before_the_last_super_bullet += 1
+            return SHOOT
